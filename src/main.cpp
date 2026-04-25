@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -34,10 +35,13 @@ namespace {
         int stars = 0;
     };
 
+    std::vector<FavoriteLevelEntry> g_favoritesCache;
+    bool g_favoritesLoaded = false;
+
     template <>
     struct matjson::Serialize<FavoriteLevelEntry> {
         static matjson::Value toJson(FavoriteLevelEntry const& value) {
-            matjson::Value root = matjson::Value::object();
+            auto root = matjson::makeObject();
             root["level-id"] = value.levelID;
             root["name"] = value.name;
             root["creator"] = value.creator;
@@ -46,17 +50,22 @@ namespace {
         }
 
         static Result<FavoriteLevelEntry> fromJson(matjson::Value const& value) {
-            auto root = checkJson(value, "FavoriteLevelEntry");
-
             FavoriteLevelEntry entry;
-            root.needs("level-id").into(entry.levelID);
-            root.has("name").into(entry.name);
-            root.has("creator").into(entry.creator);
-            root.has("stars").into(entry.stars);
 
-            if (root.isErr()) {
-                return Err(root.unwrapErr());
+            GEODE_UNWRAP_INTO(entry.levelID, value["level-id"].as<int>());
+
+            if (value.contains("name")) {
+                GEODE_UNWRAP_INTO(entry.name, value["name"].as<std::string>());
             }
+
+            if (value.contains("creator")) {
+                GEODE_UNWRAP_INTO(entry.creator, value["creator"].as<std::string>());
+            }
+
+            if (value.contains("stars")) {
+                GEODE_UNWRAP_INTO(entry.stars, value["stars"].as<int>());
+            }
+
             return Ok(entry);
         }
     };
@@ -70,11 +79,17 @@ namespace {
         }
     }
 
-    std::vector<FavoriteLevelEntry> getFavorites() {
-        return Mod::get()->getSavedValue<std::vector<FavoriteLevelEntry>>(FAVORITES_KEY, {});
+    std::vector<FavoriteLevelEntry> const& getFavorites() {
+        if (!g_favoritesLoaded) {
+            g_favoritesCache = Mod::get()->getSavedValue<std::vector<FavoriteLevelEntry>>(FAVORITES_KEY, {});
+            g_favoritesLoaded = true;
+        }
+        return g_favoritesCache;
     }
 
     void setFavorites(std::vector<FavoriteLevelEntry> const& favorites) {
+        g_favoritesCache = favorites;
+        g_favoritesLoaded = true;
         Mod::get()->setSavedValue(FAVORITES_KEY, favorites);
     }
 
@@ -116,7 +131,7 @@ namespace {
     }
 
     bool isFavorite(int levelID) {
-        auto favorites = getFavorites();
+        auto const& favorites = getFavorites();
         return std::ranges::any_of(favorites, [levelID](auto const& item) {
             return item.levelID == levelID;
         });
@@ -139,11 +154,19 @@ namespace {
     }
 
     void pruneBackups(std::filesystem::path const& backupDir, std::size_t keepCount) {
+        if (!std::filesystem::exists(backupDir)) {
+            return;
+        }
+
         std::vector<std::filesystem::directory_entry> files;
-        for (auto const& entry : std::filesystem::directory_iterator(backupDir)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".json") {
-                files.push_back(entry);
+        try {
+            for (auto const& entry : std::filesystem::directory_iterator(backupDir)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".json") {
+                    files.push_back(entry);
+                }
             }
+        } catch (std::filesystem::filesystem_error const&) {
+            return;
         }
 
         std::sort(files.begin(), files.end(), [](auto const& a, auto const& b) {
@@ -164,7 +187,7 @@ namespace {
         auto backupDir = Mod::get()->getSaveDir() / "backups";
         std::filesystem::create_directories(backupDir);
 
-        matjson::Value root = matjson::Value::object();
+        auto root = matjson::makeObject();
         root["created-at"] = static_cast<int64_t>(
             std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())
         );
@@ -172,7 +195,7 @@ namespace {
 
         auto backupPath = backupDir / makeBackupFileName();
         std::ofstream stream(backupPath, std::ios::binary | std::ios::trunc);
-        stream << root.dump(2);
+        stream << root.dump(matjson::NO_INDENTATION);
         stream.close();
 
         auto keepCount = static_cast<std::size_t>(
@@ -382,6 +405,17 @@ namespace {
 
             auto size = CCDirector::sharedDirector()->getWinSize();
 
+            if (auto background = CCSprite::create("GJ_gradientBG.png")) {
+                background->setPosition({ size.width / 2, size.height / 2 });
+                background->setColor({ 0, 102, 255 });
+                background->setScaleX(size.width / background->getContentSize().width);
+                background->setScaleY(size.height / background->getContentSize().height);
+                this->addChild(background, -10);
+            } else {
+                auto fallback = CCLayerColor::create(ccc4(10, 25, 45, 255));
+                this->addChild(fallback, -10);
+            }
+
             auto title = CCLabelBMFont::create("Favorite Levels", "goldFont.fnt");
             title->setPosition({ size.width / 2, size.height - 28.0f });
             this->addChild(title);
@@ -457,7 +491,7 @@ class $modify(FavoriteLevelsMenuLayer, MenuLayer) {
 
         auto size = CCDirector::sharedDirector()->getWinSize();
         auto menu = CCMenu::create();
-        menu->setPosition({ size.width - 72.0f, 36.0f });
+        menu->setPosition({ 78.0f, size.height - 78.0f });
         this->addChild(menu, 20);
 
         auto button = CCMenuItemSpriteExtra::create(
@@ -465,7 +499,7 @@ class $modify(FavoriteLevelsMenuLayer, MenuLayer) {
             this,
             menu_selector(FavoriteLevelsMenuLayer::onFavoriteLevels)
         );
-        button->setScale(0.7f);
+        button->setScale(0.62f);
         menu->addChild(button);
 
         return true;
@@ -512,7 +546,7 @@ class $modify(FavoriteLevelsInfoLayer, LevelInfoLayer) {
 
         auto size = CCDirector::sharedDirector()->getWinSize();
         auto menu = CCMenu::create();
-        menu->setPosition({ size.width / 2, 52.0f });
+        menu->setPosition({ size.width - 95.0f, size.height - 92.0f });
         this->addChild(menu, 30);
 
         m_fields->favoriteButtonSprite = ButtonSprite::create("Add to Favorite");
@@ -521,7 +555,7 @@ class $modify(FavoriteLevelsInfoLayer, LevelInfoLayer) {
             this,
             menu_selector(FavoriteLevelsInfoLayer::onToggleFavorite)
         );
-        favoriteButton->setScale(0.8f);
+        favoriteButton->setScale(0.62f);
         menu->addChild(favoriteButton);
 
         updateFavoriteButton();
