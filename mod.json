@@ -1,0 +1,45 @@
+{
+    "geode": "3.5.0",
+    "gd": {
+        "win": "2.206"
+    },
+    "id": "mezy.favorite-levels",
+    "name": "Favorite Levels",
+    "developer": "mezyq",
+    "version": "1.0.0",
+    "description": "Adds a Favorite Levels page to the main menu and lets you auto-backup the favorites list.",
+    "settings": {
+        "backup-title": {
+            "type": "title",
+            "name": "Auto Backup"
+        },
+        "auto-backup-enabled": {
+            "type": "bool",
+            "name": "Enable Auto Backup",
+            "description": "Automatically writes backups of your favorite levels list to the mod save folder.",
+            "default": true
+        },
+        "auto-backup-interval-minutes": {
+            "type": "int",
+            "name": "Backup Interval (Minutes)",
+            "description": "Minimum number of minutes between automatic backup writes.",
+            "default": 30,
+            "min": 1,
+            "max": 1440,
+            "control": {
+                "slider": true
+            }
+        },
+        "auto-backup-keep-count": {
+            "type": "int",
+            "name": "Backups to Keep",
+            "description": "How many old backup files should be preserved before the oldest ones are pruned.",
+            "default": 10,
+            "min": 1,
+            "max": 50,
+            "control": {
+                "slider": true
+            }
+        }
+    }
+}
